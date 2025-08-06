@@ -120,9 +120,10 @@ app.use('*', (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
-  console.log(`🚀 خادم وجبتي يعمل على المنفذ ${PORT}`);
-  console.log(`📱 تطبيق الويب: http://localhost:${PORT}`);
-  console.log(`🔧 API Endpoint: http://localhost:${PORT}/api`);
+console.log(`🚀 خادم وجبتي يعمل على المنفذ ${PORT}`);
+console.log(`📱 تطبيق الويب: https://unimeals-app.onrender.com`);
+console.log(`🔧 API Endpoint: https://unimeals-app.onrender.com/api`);
+
 });
 
 // Graceful shutdown
