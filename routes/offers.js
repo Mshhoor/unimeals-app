@@ -60,7 +60,6 @@ router.get('/', async (req, res) => {
 
 // إضافة عرض جديد
 router.post('/', authenticateToken, [
-  body('sellerName').trim().isLength({ min: 2, max: 50 }).withMessage('اسم البائع يجب أن يكون من 2-50 حرف'),
   body('mealType').isIn(['فطور', 'غداء', 'عشاء']).withMessage('نوع الوجبة غير صحيح'),
   body('price').isFloat({ min: 0.5, max: 1000 }).withMessage('السعر يجب أن يكون بين 0.5 و 1000 ريال'),
   body('details').optional().trim().isLength({ max: 500 }).withMessage('التفاصيل لا يجب أن تتجاوز 500 حرف')
@@ -75,6 +74,14 @@ router.post('/', authenticateToken, [
       });
     }
 
+    // التحقق من وجود رقم الجوال
+    if (!req.user.phone) {
+      return res.status(400).json({
+        success: false,
+        message: 'يرجى إضافة رقم الجوال أولاً من الملف الشخصي'
+      });
+    }
+
     const { sellerName, mealType, price, details } = req.body;
     const offerKey = generateOfferId();
 
@@ -84,7 +91,7 @@ router.post('/', authenticateToken, [
         meal_type, price, details, status
       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'available')
     `, [
-      offerKey, req.user.seller_id, sellerName, req.user.phone,
+      offerKey, req.user.seller_id, sellerName || req.user.username, req.user.phone,
       mealType, price, details || null
     ]);
 
@@ -92,7 +99,7 @@ router.post('/', authenticateToken, [
     const io = req.app.get('io');
     io.emit('new_offer', {
       key: offerKey,
-      sellerName,
+      sellerName: sellerName || req.user.username,
       type: mealType,
       price,
       details: details || 'لم يتم إضافة تفاصيل',

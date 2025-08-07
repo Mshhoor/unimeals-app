@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>بيع وشراء وجبات - مع التحقق الآمن</title>
+  <title>منصة وجبتي - تبادل الوجبات الجامعية</title>
   <link rel="stylesheet" href="style.css">
   
   <!-- Socket.IO -->
@@ -20,11 +20,118 @@
     <p>منصة آمنة ومتطورة لتبادل وجبات المطعم مع نظام التقييم والتحقق المتقدم</p>
   </header>
 
+  <!-- Auth Section (Login/Register) -->
+  <div class="container" id="authSection">
+    <div class="auth-tabs">
+      <button class="auth-tab-btn active" onclick="showAuthTab('signin')">تسجيل الدخول</button>
+      <button class="auth-tab-btn" onclick="showAuthTab('signup')">إنشاء حساب</button>
+    </div>
+
+    <!-- Sign In Form -->
+    <div id="signin-tab" class="auth-tab-content active">
+      <div class="section-header">
+        <h2>تسجيل الدخول</h2>
+        <p>أدخل بيانات حسابك للوصول إلى المنصة</p>
+      </div>
+      
+      <form id="signinForm">
+        <div class="form-group">
+          <label for="signinEmail">البريد الإلكتروني:</label>
+          <input type="email" id="signinEmail" placeholder="example@gmail.com" required>
+        </div>
+
+        <div class="form-group">
+          <label for="signinPassword">كلمة المرور:</label>
+          <input type="password" id="signinPassword" placeholder="أدخل كلمة المرور" required>
+        </div>
+
+        <div style="text-align: center; margin-top: 2rem;">
+          <button type="submit" class="btn btn-success">🔑 تسجيل الدخول</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Sign Up Form -->
+    <div id="signup-tab" class="auth-tab-content">
+      <div class="section-header">
+        <h2>إنشاء حساب جديد</h2>
+        <p>انضم إلى منصة وجبتي وابدأ في تبادل الوجبات</p>
+      </div>
+      
+      <form id="signupForm">
+        <div class="form-group">
+          <label for="signupUsername">اسم المستخدم:</label>
+          <input type="text" id="signupUsername" placeholder="مثال: أحمد_محمد" required>
+        </div>
+
+        <div class="form-group">
+          <label for="signupEmail">البريد الإلكتروني:</label>
+          <input type="email" id="signupEmail" placeholder="example@gmail.com" required>
+        </div>
+
+        <div class="form-group">
+          <label for="signupPassword">كلمة المرور:</label>
+          <input type="password" id="signupPassword" placeholder="6 أحرف على الأقل" minlength="6" required>
+        </div>
+
+        <div class="form-group">
+          <label for="confirmPassword">تأكيد كلمة المرور:</label>
+          <input type="password" id="confirmPassword" placeholder="أعد إدخال كلمة المرور" required>
+        </div>
+
+        <div style="text-align: center; margin-top: 2rem;">
+          <button type="submit" class="btn btn-success">✨ إنشاء الحساب</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Phone Setup Modal -->
+  <div id="phoneSetupModal" class="verification-modal">
+    <div class="verification-content">
+      <h2 class="verification-header">📱 إضافة رقم الجوال</h2>
+      <p class="verification-description">
+        لتتمكن من بيع الوجبات، يرجى إضافة رقم جوالك للتواصل مع المشترين
+      </p>
+      
+      <div class="verification-info">
+        <strong>📞 لماذا نحتاج رقم الجوال؟</strong><br>
+        • للتواصل مع المشترين عبر واتساب<br>
+        • لإرسال تفاصيل الحجوزات<br>
+        • لضمان التواصل السريع والآمن<br>
+      </div>
+      
+      <input 
+        type="tel" 
+        id="phoneSetupInput" 
+        class="phone-input"
+        placeholder="05XXXXXXXX" 
+        maxlength="10"
+      />
+      
+      <div id="phoneSetupError" class="verification-error"></div>
+      
+      <button class="btn btn-success" id="savePhoneBtn" onclick="savePhoneNumber()">
+        💾 حفظ رقم الجوال
+      </button>
+      
+      <button class="btn btn-secondary" onclick="skipPhoneSetup()">
+        ⏭️ تخطي الآن
+      </button>
+    </div>
+  </div>
+
   <!-- Role Selection Section -->
-  <div class="container" id="roleSelection">
-    <div class="section-header">
-      <h2>مرحباً بك في منصة تبادل الوجبات المتطورة</h2>
-      <p>اختر دورك للبدء في استخدام المنصة الجديدة والمحسنة مع نظام الحماية المتقدم</p>
+  <div class="container hidden" id="roleSelection">
+    <div class="user-info">
+      <div class="welcome-message">
+        <h3>مرحباً، <span id="usernameDisplay"></span>! 👋</h3>
+        <p>اختر ما تريد القيام به اليوم</p>
+        <div class="user-actions">
+          <button class="btn btn-secondary btn-small" onclick="showProfile()">⚙️ الملف الشخصي</button>
+          <button class="btn btn-danger btn-small" onclick="signOut()">🚪 تسجيل الخروج</button>
+        </div>
+      </div>
     </div>
     
     <div class="role-cards">
@@ -38,6 +145,33 @@
         <div class="role-icon">🛒</div>
         <div class="role-title">أنا مشتري</div>
         <div class="role-description">أريد شراء وجبة من بائع موثوق ومقيم بأمان</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Profile Modal -->
+  <div id="profileModal" class="modal">
+    <div class="modal-content">
+      <h3 style="margin-bottom: 1rem; color: #667eea;">الملف الشخصي</h3>
+      
+      <div class="profile-info">
+        <div class="info-item">
+          <strong>اسم المستخدم:</strong>
+          <span id="profileUsername">-</span>
+        </div>
+        <div class="info-item">
+          <strong>البريد الإلكتروني:</strong>
+          <span id="profileEmail">-</span>
+        </div>
+        <div class="info-item">
+          <strong>رقم الجوال:</strong>
+          <span id="profilePhone">غير مضاف</span>
+        </div>
+      </div>
+
+      <div class="action-buttons">
+        <button class="btn btn-contact" onclick="showAddPhoneModal()">📱 إضافة/تحديث الجوال</button>
+        <button class="btn btn-secondary" onclick="closeProfileModal()">إغلاق</button>
       </div>
     </div>
   </div>
@@ -60,11 +194,6 @@
       </div>
       
       <form id="offerForm">
-        <div class="form-group">
-          <label for="sellerName">اسم البائع:</label>
-          <input type="text" id="sellerName" placeholder="مثال: أحمد محمد" required>
-        </div>
-
         <div class="form-group">
           <label for="mealType">نوع الوجبة:</label>
           <select id="mealType">
@@ -154,105 +283,6 @@
     
     <div style="text-align: center; margin-top: 2rem;">
       <button class="btn btn-secondary" onclick="goHome()">🏠 رجوع للرئيسية</button>
-    </div>
-  </div>
-
-  <!-- Phone Verification Modal -->
-  <div id="phoneVerificationModal" class="verification-modal">
-    <div class="verification-content">
-      <!-- خطوة 1: إدخال رقم الجوال -->
-      <div class="verification-step active" id="verifyStep1">
-        <h2 class="verification-header">🔐 التحقق الآمن من الجوال</h2>
-        <p class="verification-description">
-          لضمان الأمان وحماية بياناتك، يرجى التحقق من رقم جوالك أولاً
-        </p>
-        
-        <div class="verification-info">
-          <strong>📱 لماذا نحتاج التحقق؟</strong><br>
-          • حماية حسابك من الاستخدام غير المصرح<br>
-          • ضمان وصول الإشعارات المهمة إليك<br>
-          • تأمين معاملاتك المالية<br>
-        </div>
-        
-        <input 
-          type="tel" 
-          id="verifyPhoneInput" 
-          class="phone-input"
-          placeholder="05XXXXXXXX" 
-          maxlength="10"
-        />
-        
-        <div id="verifyError1" class="verification-error"></div>
-        
-        <button class="btn btn-success" id="sendVerifyCodeBtn" onclick="sendVerificationCode()">
-          📱 إرسال كود التحقق
-        </button>
-        
-        <button class="btn btn-secondary" onclick="closeVerificationModal()">
-          ❌ إلغاء
-        </button>
-      </div>
-      
-      <!-- خطوة 2: إدخال الكود -->
-      <div class="verification-step" id="verifyStep2">
-        <h2 class="verification-header">🔍 إدخال كود التحقق</h2>
-        <p class="verification-description">
-          تم إرسال كود التحقق المكون من 6 أرقام إلى:
-        </p>
-        
-        <div class="phone-display" id="verifiedPhoneDisplay">
-          +966XXXXXXXXX
-        </div>
-        
-        <input 
-          type="text" 
-          id="verifyCodeInput" 
-          class="code-input"
-          placeholder="● ● ● ● ● ●" 
-          maxlength="6"
-        />
-        
-        <div id="verifyError2" class="verification-error"></div>
-        
-        <button class="btn btn-success" id="confirmVerifyCodeBtn" onclick="verifyCode()">
-          ✅ تحقق من الكود
-        </button>
-        
-        <div id="resendCountdown" class="countdown-timer"></div>
-        
-        <button class="btn btn-warning" id="resendCodeBtn" onclick="resendCode()" disabled>
-          🔄 إرسال الكود مرة أخرى
-        </button>
-        
-        <button class="btn btn-secondary" onclick="goToVerifyStep1()">
-          🔙 تغيير رقم الجوال
-        </button>
-      </div>
-      
-      <!-- خطوة 3: نجح التحقق -->
-      <div class="verification-step" id="verifyStep3">
-        <div class="verification-success">
-          <div class="success-icon">✅</div>
-          <h2 class="verification-header" style="color: #48bb78;">
-            تم التحقق بنجاح! 🎉
-          </h2>
-          <p class="verification-description" style="color: #48bb78;">
-            تم التحقق من رقم جوالك بنجاح وتم حفظه بأمان.<br>
-            يمكنك الآن الوصول إلى جميع الميزات المتقدمة في المنصة.
-          </p>
-          
-          <div class="verification-info" style="border-right-color: #48bb78;">
-            <strong>🛡️ تم تأمين حسابك بنجاح</strong><br>
-            • رقم جوالك محمي ومشفر<br>
-            • ستحصل على إشعارات مهمة<br>
-            • يمكنك الآن إدارة طلباتك بأمان<br>
-          </div>
-          
-          <button class="btn btn-success" onclick="proceedAfterVerification()">
-            🚀 متابعة إلى المنصة
-          </button>
-        </div>
-      </div>
     </div>
   </div>
 

@@ -4,11 +4,11 @@ const Database = require('../config/database');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
-// توليد معرف البائع من رقم الهاتف
-function generateSellerId(phone) {
+// توليد معرف البائع من البريد واسم المستخدم
+function generateSellerId(input) {
   let hash = 0;
-  for (let i = 0; i < phone.length; i++) {
-    const char = phone.charCodeAt(i);
+  for (let i = 0; i < input.length; i++) {
+    const char = input.charCodeAt(i);
     hash = ((hash << 5) - hash) + char;
     hash = hash & hash; // تحويل إلى 32bit integer
   }
@@ -242,10 +242,10 @@ const authenticateToken = (req, res, next) => {
 
     try {
       const user = await Database.get('SELECT * FROM users WHERE id = ?', [decoded.userId]);
-      if (!user || !user.is_verified) {
+      if (!user) {
         return res.status(403).json({
           success: false,
-          message: 'المستخدم غير محقق'
+          message: 'المستخدم غير موجود'
         });
       }
 

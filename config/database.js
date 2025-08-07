@@ -30,16 +30,16 @@ class Database {
   }
 
   createTables() {
-    // جدول المستخدمين والتحقق
+    // جدول المستخدمين المحدث
     this.db.run(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        phone TEXT UNIQUE NOT NULL,
-        name TEXT,
+        username TEXT UNIQUE NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        phone TEXT UNIQUE,
         seller_id TEXT UNIQUE,
-        is_verified BOOLEAN DEFAULT 0,
-        verification_code TEXT,
-        verification_expires INTEGER,
+        phone_verified BOOLEAN DEFAULT 0,
         created_at INTEGER DEFAULT (strftime('%s', 'now')),
         updated_at INTEGER DEFAULT (strftime('%s', 'now'))
       )
@@ -52,7 +52,7 @@ class Database {
         key TEXT UNIQUE NOT NULL,
         seller_id TEXT NOT NULL,
         seller_name TEXT NOT NULL,
-        seller_phone TEXT NOT NULL,
+        seller_phone TEXT,
         meal_type TEXT NOT NULL,
         price REAL NOT NULL,
         details TEXT,
@@ -64,7 +64,7 @@ class Database {
         reserved_at INTEGER,
         confirmed_at INTEGER,
         rejected_at INTEGER,
-        FOREIGN KEY (seller_phone) REFERENCES users (phone)
+        FOREIGN KEY (seller_id) REFERENCES users (seller_id)
       )
     `);
 
@@ -96,16 +96,15 @@ class Database {
       )
     `);
 
-    // جدول جلسات التحقق من SMS
+    // جدول جلسات المستخدمين
     this.db.run(`
-      CREATE TABLE IF NOT EXISTS verification_sessions (
+      CREATE TABLE IF NOT EXISTS user_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        phone TEXT NOT NULL,
-        code TEXT NOT NULL,
+        user_id INTEGER NOT NULL,
+        token TEXT UNIQUE NOT NULL,
         expires_at INTEGER NOT NULL,
-        attempts INTEGER DEFAULT 0,
-        is_used BOOLEAN DEFAULT 0,
-        created_at INTEGER DEFAULT (strftime('%s', 'now'))
+        created_at INTEGER DEFAULT (strftime('%s', 'now')),
+        FOREIGN KEY (user_id) REFERENCES users (id)
       )
     `);
 
@@ -174,11 +173,11 @@ class Database {
   async cleanup() {
     const oneWeekAgo = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60);
     
-    // حذف جلسات التحقق المنتهية الصلاحية
+    // حذف الجلسات المنتهية الصلاحية
     await this.run(`
-      DELETE FROM verification_sessions 
-      WHERE expires_at < ? OR (is_used = 1 AND created_at < ?)
-    `, [Math.floor(Date.now() / 1000), oneWeekAgo]);
+      DELETE FROM user_sessions 
+      WHERE expires_at < ?
+    `, [Math.floor(Date.now() / 1000)]);
 
     // حذف الإشعارات القديمة المقروءة
     await this.run(`

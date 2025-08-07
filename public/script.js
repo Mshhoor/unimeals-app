@@ -2,15 +2,14 @@
 let socket;
 let authToken = localStorage.getItem('authToken');
 let currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
-let pendingVerificationAction = null;
 let currentRatingOffer = null;
 let selectedRating = 0;
-let resendCountdown;
 
 // API Base URL
 const API_BASE = window.location.origin + '/api';
 
 // DOM Elements
+const authSection = document.getElementById('authSection');
 const roleSelection = document.getElementById('roleSelection');
 const sellerSection = document.getElementById('sellerSection');
 const buyerSection = document.getElementById('buyerSection');
@@ -21,6 +20,8 @@ const notificationsList = document.getElementById('notificationsList');
 const offerForm = document.getElementById('offerForm');
 const ratingModal = document.getElementById('ratingModal');
 const loadingOverlay = document.getElementById('loadingOverlay');
+const profileModal = document.getElementById('profileModal');
+const phoneSetupModal = document.getElementById('phoneSetupModal');
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
@@ -36,7 +37,7 @@ function initSocketConnection() {
   
   socket.on('connect', () => {
     console.log('متصل بالخادم:', socket.id);
-    if (currentUser) {
+    if (currentUser && currentUser.sellerId) {
       socket.emit('join_seller', currentUser.sellerId);
     }
   });
@@ -80,7 +81,10 @@ function initSocketConnection() {
 
 // ============= Authentication Functions =============
 async function checkExistingAuth() {
-  if (!authToken || !currentUser) return;
+  if (!authToken || !currentUser) {
+    showAuthSection();
+    return;
+  }
 
   try {
     const response = await fetch(`${API_BASE}/auth/verify-token`, {
@@ -96,16 +100,23 @@ async function checkExistingAuth() {
       if (data.success) {
         currentUser = data.user;
         localStorage.setItem('currentUser', JSON.stringify(currentUser));
-        console.log('المستخدم محقق:', currentUser.phone);
+        showRoleSelection();
+        // Connect to socket with seller ID
+        if (currentUser.sellerId) {
+          socket.emit('join_seller', currentUser.sellerId);
+        }
       } else {
         clearAuthData();
+        showAuthSection();
       }
     } else {
       clearAuthData();
+      showAuthSection();
     }
   } catch (error) {
     console.error('خطأ في التحقق من المصادقة:', error);
     clearAuthData();
+    showAuthSection();
   }
 }
 
@@ -117,121 +128,73 @@ function clearAuthData() {
 }
 
 function isAuthenticated() {
-  return authToken && currentUser && currentUser.isVerified;
+  return authToken && currentUser;
 }
 
-// ============= Phone Verification Functions =============
-function showVerificationModal() {
-  document.getElementById('phoneVerificationModal').style.display = 'block';
-  document.body.style.overflow = 'hidden';
-  goToVerifyStep1();
+function showAuthSection() {
+  authSection.classList.remove('hidden');
+  roleSelection.classList.add('hidden');
+  sellerSection.classList.add('hidden');
+  buyerSection.classList.add('hidden');
 }
 
-function closeVerificationModal() {
-  document.getElementById('phoneVerificationModal').style.display = 'none';
-  document.body.style.overflow = 'auto';
-  pendingVerificationAction = null;
-  clearInterval(resendCountdown);
+function showRoleSelection() {
+  authSection.classList.add('hidden');
+  roleSelection.classList.remove('hidden');
+  sellerSection.classList.add('hidden');
+  buyerSection.classList.add('hidden');
+  
+  // Update username display
+  document.getElementById('usernameDisplay').textContent = currentUser.username;
 }
 
-async function sendVerificationCode() {
-  const phoneInput = document.getElementById('verifyPhoneInput');
-  const sendBtn = document.getElementById('sendVerifyCodeBtn');
+// ============= Auth Tab Functions =============
+function showAuthTab(tabName) {
+  // Remove active class from all tabs
+  document.querySelectorAll('.auth-tab-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  document.querySelectorAll('.auth-tab-content').forEach(content => {
+    content.classList.remove('active');
+  });
   
-  let phoneNumber = phoneInput.value.trim();
-  
-  // Validation
-  if (!phoneNumber) {
-    showVerifyError('verifyError1', 'يرجى إدخال رقم الجوال');
-    return;
-  }
-  
-  if (phoneNumber.length !== 10) {
-    showVerifyError('verifyError1', 'رقم الجوال يجب أن يكون مكوناً من 10 أرقام');
-    return;
-  }
-  
-  if (!phoneNumber.startsWith('05')) {
-    showVerifyError('verifyError1', 'رقم الجوال يجب أن يبدأ بـ 05');
-    return;
-  }
+  // Activate selected tab
+  document.querySelector(`[onclick="showAuthTab('${tabName}')"]`).classList.add('active');
+  document.getElementById(tabName + '-tab').classList.add('active');
+}
 
-  if (!/^\d+$/.test(phoneNumber)) {
-    showVerifyError('verifyError1', 'رقم الجوال يجب أن يحتوي على أرقام فقط');
+// ============= Sign Up/Sign In Functions =============
+async function handleSignUp(e) {
+  e.preventDefault();
+  
+  const username = document.getElementById('signupUsername').value.trim();
+  const email = document.getElementById('signupEmail').value.trim();
+  const password = document.getElementById('signupPassword').value;
+  const confirmPassword = document.getElementById('confirmPassword').value;
+  
+  // Client-side validation
+  if (password !== confirmPassword) {
+    showNotification('كلمة المرور غير متطابقة', 'error');
     return;
   }
   
-  sendBtn.disabled = true;
-  sendBtn.classList.add('btn-loading');
+  if (password.length < 6) {
+    showNotification('كلمة المرور يجب أن تكون 6 أحرف على الأقل', 'error');
+    return;
+  }
+  
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  const originalText = submitBtn.innerHTML;
+  submitBtn.classList.add('btn-loading');
+  submitBtn.disabled = true;
   
   try {
-    const response = await fetch(`${API_BASE}/auth/verify-phone`, {
+    const response = await fetch(`${API_BASE}/auth/signup`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ phone: phoneNumber })
-    });
-
-    const data = await response.json();
-    
-    if (data.success) {
-      document.getElementById('verifiedPhoneDisplay').textContent = '+966' + phoneNumber.substring(1);
-      goToVerifyStep2();
-      startVerifyCountdown();
-      hideVerifyError('verifyError1');
-      
-      showNotification('تم إرسال كود التحقق بنجاح! 📱', 'success');
-      
-      // في بيئة التطوير، اعرض الكود
-      if (data.code) {
-        showNotification(`كود التحقق: ${data.code}`, 'info');
-      }
-    } else {
-      showVerifyError('verifyError1', data.message || 'حدث خطأ في إرسال كود التحقق');
-    }
-    
-  } catch (error) {
-    console.error('خطأ في إرسال كود التحقق:', error);
-    showVerifyError('verifyError1', 'تحقق من اتصالك بالإنترنت وحاول مرة أخرى');
-  } finally {
-    sendBtn.disabled = false;
-    sendBtn.classList.remove('btn-loading');
-  }
-}
-
-async function verifyCode() {
-  const codeInput = document.getElementById('verifyCodeInput');
-  const verifyBtn = document.getElementById('confirmVerifyCodeBtn');
-  const phoneNumber = document.getElementById('verifyPhoneInput').value;
-  
-  const code = codeInput.value.trim();
-  
-  if (!code) {
-    showVerifyError('verifyError2', 'يرجى إدخال كود التحقق');
-    return;
-  }
-  
-  if (code.length !== 6) {
-    showVerifyError('verifyError2', 'كود التحقق يجب أن يكون مكوناً من 6 أرقام');
-    return;
-  }
-
-  if (!/^\d+$/.test(code)) {
-    showVerifyError('verifyError2', 'كود التحقق يجب أن يحتوي على أرقام فقط');
-    return;
-  }
-  
-  verifyBtn.disabled = true;
-  verifyBtn.classList.add('btn-loading');
-  
-  try {
-    const response = await fetch(`${API_BASE}/auth/verify-code`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ phone: phoneNumber, code })
+      body: JSON.stringify({ username, email, password })
     });
 
     const data = await response.json();
@@ -243,127 +206,184 @@ async function verifyCode() {
       localStorage.setItem('authToken', authToken);
       localStorage.setItem('currentUser', JSON.stringify(currentUser));
       
-      // Connect to socket with seller ID
+      showNotification('تم إنشاء الحساب بنجاح! مرحباً بك 🎉', 'success');
+      
+      // Connect to socket
       socket.emit('join_seller', currentUser.sellerId);
       
-      goToVerifyStep3();
-      hideVerifyError('verifyError2');
+      // Reset form and show role selection
+      document.getElementById('signupForm').reset();
+      showRoleSelection();
       
-      showNotification('تم التحقق بنجاح! مرحباً بك 🎉', 'success');
     } else {
-      showVerifyError('verifyError2', data.message || 'كود التحقق غير صحيح');
-      codeInput.value = '';
-      codeInput.focus();
+      showNotification(data.message || 'حدث خطأ في إنشاء الحساب', 'error');
     }
-    
   } catch (error) {
-    console.error('خطأ في التحقق من الكود:', error);
-    showVerifyError('verifyError2', 'حدث خطأ في التحقق من الكود');
+    console.error('خطأ في إنشاء الحساب:', error);
+    showNotification('حدث خطأ في إنشاء الحساب', 'error');
   } finally {
-    verifyBtn.disabled = false;
-    verifyBtn.classList.remove('btn-loading');
+    submitBtn.innerHTML = originalText;
+    submitBtn.classList.remove('btn-loading');
+    submitBtn.disabled = false;
   }
 }
 
-function goToVerifyStep1() {
-  document.querySelectorAll('.verification-step').forEach(step => {
-    step.classList.remove('active');
-  });
-  document.getElementById('verifyStep1').classList.add('active');
-  clearInterval(resendCountdown);
+async function handleSignIn(e) {
+  e.preventDefault();
   
-  document.getElementById('verifyPhoneInput').value = '';
-  hideVerifyError('verifyError1');
-}
-
-function goToVerifyStep2() {
-  document.querySelectorAll('.verification-step').forEach(step => {
-    step.classList.remove('active');
-  });
-  document.getElementById('verifyStep2').classList.add('active');
+  const email = document.getElementById('signinEmail').value.trim();
+  const password = document.getElementById('signinPassword').value;
   
-  setTimeout(() => {
-    document.getElementById('verifyCodeInput').focus();
-  }, 300);
-}
-
-function goToVerifyStep3() {
-  document.querySelectorAll('.verification-step').forEach(step => {
-    step.classList.remove('active');
-  });
-  document.getElementById('verifyStep3').classList.add('active');
-  clearInterval(resendCountdown);
-}
-
-function proceedAfterVerification() {
-  closeVerificationModal();
-  
-  if (pendingVerificationAction) {
-    pendingVerificationAction();
-    pendingVerificationAction = null;
-  }
-  
-  setTimeout(() => {
-    showNotification('يمكنك الآن الوصول إلى جميع الميزات المتقدمة! 🚀', 'success');
-  }, 500);
-}
-
-async function resendCode() {
-  const resendBtn = document.getElementById('resendCodeBtn');
-  resendBtn.disabled = true;
-  
-  document.getElementById('verifyCodeInput').value = '';
-  hideVerifyError('verifyError2');
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  const originalText = submitBtn.innerHTML;
+  submitBtn.classList.add('btn-loading');
+  submitBtn.disabled = true;
   
   try {
-    await sendVerificationCode();
-    startVerifyCountdown();
-    showNotification('تم إعادة إرسال الكود 🔄', 'info');
+    const response = await fetch(`${API_BASE}/auth/signin`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ email, password })
+    });
+
+    const data = await response.json();
+    
+    if (data.success) {
+      // Save auth data
+      authToken = data.token;
+      currentUser = data.user;
+      localStorage.setItem('authToken', authToken);
+      localStorage.setItem('currentUser', JSON.stringify(currentUser));
+      
+      showNotification('تم تسجيل الدخول بنجاح! 🎉', 'success');
+      
+      // Connect to socket
+      if (currentUser.sellerId) {
+        socket.emit('join_seller', currentUser.sellerId);
+      }
+      
+      // Reset form and show role selection
+      document.getElementById('signinForm').reset();
+      showRoleSelection();
+      
+    } else {
+      showNotification(data.message || 'حدث خطأ في تسجيل الدخول', 'error');
+    }
   } catch (error) {
-    showVerifyError('verifyError2', 'فشل في إعادة إرسال الكود. حاول مرة أخرى');
-    resendBtn.disabled = false;
+    console.error('خطأ في تسجيل الدخول:', error);
+    showNotification('حدث خطأ في تسجيل الدخول', 'error');
+  } finally {
+    submitBtn.innerHTML = originalText;
+    submitBtn.classList.remove('btn-loading');
+    submitBtn.disabled = false;
   }
 }
 
-function startVerifyCountdown() {
-  let seconds = 60;
-  const resendBtn = document.getElementById('resendCodeBtn');
-  const countdownDiv = document.getElementById('resendCountdown');
-  
-  resendBtn.disabled = true;
-  
-  resendCountdown = setInterval(() => {
-    countdownDiv.textContent = `يمكنك إعادة الإرسال خلال ${seconds} ثانية ⏰`;
-    seconds--;
-    
-    if (seconds < 0) {
-      clearInterval(resendCountdown);
-      resendBtn.disabled = false;
-      countdownDiv.textContent = 'يمكنك الآن إعادة إرسال الكود ✅';
-    }
-  }, 1000);
+function signOut() {
+  if (confirm('هل تريد تسجيل الخروج؟')) {
+    clearAuthData();
+    showNotification('تم تسجيل الخروج بنجاح', 'success');
+    showAuthSection();
+  }
 }
 
-function showVerifyError(errorId, message) {
-  const errorDiv = document.getElementById(errorId);
+// ============= Profile Functions =============
+function showProfile() {
+  if (!currentUser) return;
+  
+  document.getElementById('profileUsername').textContent = currentUser.username;
+  document.getElementById('profileEmail').textContent = currentUser.email;
+  document.getElementById('profilePhone').textContent = currentUser.phone || 'غير مضاف';
+  
+  profileModal.style.display = 'block';
+}
+
+function closeProfileModal() {
+  profileModal.style.display = 'none';
+}
+
+function showAddPhoneModal() {
+  closeProfileModal();
+  document.getElementById('phoneSetupInput').value = currentUser.phone || '';
+  phoneSetupModal.style.display = 'block';
+}
+
+function skipPhoneSetup() {
+  phoneSetupModal.style.display = 'none';
+}
+
+async function savePhoneNumber() {
+  const phoneInput = document.getElementById('phoneSetupInput');
+  const phone = phoneInput.value.trim();
+  
+  if (!phone) {
+    showPhoneSetupError('يرجى إدخال رقم الجوال');
+    return;
+  }
+  
+  if (phone.length !== 10 || !phone.startsWith('05')) {
+    showPhoneSetupError('رقم الجوال يجب أن يبدأ بـ 05 ويتكون من 10 أرقام');
+    return;
+  }
+  
+  const saveBtn = document.getElementById('savePhoneBtn');
+  const originalText = saveBtn.innerHTML;
+  saveBtn.classList.add('btn-loading');
+  saveBtn.disabled = true;
+  
+  try {
+    const response = await apiRequest(`${API_BASE}/auth/add-phone`, {
+      method: 'POST',
+      body: JSON.stringify({ phone })
+    });
+
+    if (!response) return;
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      currentUser.phone = phone;
+      currentUser.phoneVerified = true;
+      localStorage.setItem('currentUser', JSON.stringify(currentUser));
+      
+      showNotification('تم حفظ رقم الجوال بنجاح! 📱', 'success');
+      skipPhoneSetup();
+    } else {
+      showPhoneSetupError(data.message || 'حدث خطأ في حفظ رقم الجوال');
+    }
+  } catch (error) {
+    console.error('خطأ في حفظ رقم الجوال:', error);
+    showPhoneSetupError('حدث خطأ في حفظ رقم الجوال');
+  } finally {
+    saveBtn.innerHTML = originalText;
+    saveBtn.classList.remove('btn-loading');
+    saveBtn.disabled = false;
+  }
+}
+
+function showPhoneSetupError(message) {
+  const errorDiv = document.getElementById('phoneSetupError');
   errorDiv.textContent = message;
   errorDiv.style.display = 'block';
   
   setTimeout(() => {
-    hideVerifyError(errorId);
-  }, 10000);
-}
-
-function hideVerifyError(errorId) {
-  const errorDiv = document.getElementById(errorId);
-  errorDiv.style.display = 'none';
+    errorDiv.style.display = 'none';
+  }, 5000);
 }
 
 // ============= Navigation Functions =============
 function showSeller() {
   if (!isAuthenticated()) {
-    pendingVerificationAction = showSeller;
-    showVerificationModal();
+    showNotification('يرجى تسجيل الدخول أولاً', 'error');
+    showAuthSection();
+    return;
+  }
+
+  // Check if phone is added
+  if (!currentUser.phone) {
+    showAddPhoneModal();
     return;
   }
 
@@ -375,6 +395,12 @@ function showSeller() {
 }
 
 function showBuyer() {
+  if (!isAuthenticated()) {
+    showNotification('يرجى تسجيل الدخول أولاً', 'error');
+    showAuthSection();
+    return;
+  }
+
   roleSelection.classList.add('hidden');
   buyerSection.classList.remove('hidden');
   loadOffers();
@@ -383,19 +409,10 @@ function showBuyer() {
 function goHome() {
   sellerSection.classList.add('hidden');
   buyerSection.classList.add('hidden');
-  roleSelection.classList.remove('hidden');
+  showRoleSelection();
 }
 
 function showTab(event, tabName) {
-  // Check if authentication is needed for certain tabs
-  if ((tabName === 'manage-orders' || tabName === 'my-meals' || tabName === 'notifications')) {
-    if (!isAuthenticated()) {
-      pendingVerificationAction = () => showTab(event, tabName);
-      showVerificationModal();
-      return;
-    }
-  }
-
   // Hide all tab contents
   document.querySelectorAll('.tab-content').forEach(tab => {
     tab.classList.add('hidden');
@@ -450,7 +467,7 @@ async function apiRequest(url, options = {}) {
     if (response.status === 401) {
       clearAuthData();
       showNotification('انتهت صلاحية الجلسة، يرجى إعادة التسجيل', 'error');
-      goHome();
+      showAuthSection();
       return null;
     }
 
@@ -551,6 +568,7 @@ function displayOffers(offers) {
   });
 }
 
+// Continue with rest of the functions...
 async function reserveMeal(offerKey, sellerName, mealType, price) {
   const buyerName = prompt('أدخل اسمك:');
   if (!buyerName || buyerName.trim().length < 2) {
@@ -602,7 +620,213 @@ async function reserveMeal(offerKey, sellerName, mealType, price) {
   }
 }
 
-// ============= Seller Functions =============
+// ============= Event Listeners Setup =============
+function setupEventListeners() {
+  // Auth forms
+  document.getElementById('signinForm').addEventListener('submit', handleSignIn);
+  document.getElementById('signupForm').addEventListener('submit', handleSignUp);
+  
+  // Offer form submission
+  offerForm.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    if (!isAuthenticated()) {
+      showNotification('يرجى تسجيل الدخول أولاً', 'error');
+      showAuthSection();
+      return;
+    }
+    
+    const mealType = document.getElementById('mealType').value;
+    const price = parseFloat(document.getElementById('mealPrice').value);
+    const details = document.getElementById('mealDetails').value.trim();
+    
+    // Client-side validation
+    if (!price || price <= 0) {
+      showNotification("يرجى إدخال سعر صحيح", "error");
+      return;
+    }
+    
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.classList.add('btn-loading');
+    submitBtn.disabled = true;
+    
+    try {
+      const response = await apiRequest(`${API_BASE}/offers`, {
+        method: 'POST',
+        body: JSON.stringify({
+          sellerName: currentUser.username,
+          mealType,
+          price,
+          details: details || undefined
+        })
+      });
+
+      if (!response) return;
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showNotification("تم نشر العرض بنجاح! ✅", "success");
+        offerForm.reset();
+        
+        // Switch to my meals tab
+        setTimeout(() => {
+          showTab(null, 'my-meals');
+          document.querySelector('[onclick*="my-meals"]').click();
+        }, 1500);
+      } else {
+        showNotification(data.message || "حدث خطأ في نشر العرض", "error");
+      }
+    } catch (error) {
+      console.error("خطأ في إضافة العرض:", error);
+      showNotification("حدث خطأ في نشر العرض", "error");
+    } finally {
+      submitBtn.innerHTML = originalText;
+      submitBtn.classList.remove('btn-loading');
+      submitBtn.disabled = false;
+    }
+  });
+
+  // Phone input formatting
+  const phoneSetupInput = document.getElementById('phoneSetupInput');
+  if (phoneSetupInput) {
+    phoneSetupInput.addEventListener('input', function(e) {
+      let value = e.target.value.replace(/\D/g, '');
+      if (value.length > 10) value = value.substring(0, 10);
+      e.target.value = value;
+    });
+  }
+
+  // Rating stars click events
+  const ratingStars = document.querySelectorAll('.rating-stars span');
+  ratingStars.forEach(star => {
+    star.addEventListener('click', function() {
+      selectedRating = parseInt(this.dataset.rating);
+      updateRatingDisplay();
+    });
+    
+    star.addEventListener('mouseenter', function() {
+      const rating = parseInt(this.dataset.rating);
+      ratingStars.forEach((s, index) => {
+        s.style.color = index < rating ? '#ffd700' : '#ddd';
+      });
+    });
+  });
+  
+  document.querySelector('.rating-stars').addEventListener('mouseleave', function() {
+    updateRatingDisplay();
+  });
+
+  // Close modals when clicking outside
+  window.onclick = function(event) {
+    if (event.target === profileModal) {
+      closeProfileModal();
+    }
+    if (event.target === phoneSetupModal) {
+      skipPhoneSetup();
+    }
+    if (event.target === ratingModal) {
+      closeRatingModal();
+    }
+  };
+
+  // Close modals with ESC key
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      closeProfileModal();
+      skipPhoneSetup();
+      closeRatingModal();
+    }
+  });
+}
+
+// ============= Utility Functions =============
+function validatePhoneNumber(phone) {
+  const phoneRegex = /^\d{10}$/;
+  return phoneRegex.test(phone) && phone.startsWith('05');
+}
+
+function formatTimeAgo(timestamp) {
+  const now = Date.now();
+  const diffMinutes = Math.floor((now - timestamp) / (1000 * 60));
+  
+  if (diffMinutes < 1) return 'الآن';
+  if (diffMinutes < 60) return `منذ ${diffMinutes} دقيقة`;
+  if (diffMinutes < 1440) return `منذ ${Math.floor(diffMinutes / 60)} ساعة`;
+  return `منذ ${Math.floor(diffMinutes / 1440)} يوم`;
+}
+
+function displayRatingStars(rating, count = 0) {
+  const fullStars = Math.floor(rating);
+  const hasHalfStar = rating % 1 >= 0.5;
+  let starsHtml = '';
+  
+  for (let i = 0; i < 5; i++) {
+    if (i < fullStars) {
+      starsHtml += '⭐';
+    } else if (i === fullStars && hasHalfStar) {
+      starsHtml += '🌟';
+    } else {
+      starsHtml += '☆';
+    }
+  }
+  
+  return `<span class="stars">${starsHtml}</span><span class="rating-text">${rating}/5 (${count} تقييم)</span>`;
+}
+
+function createWhatsAppLink(phoneNumber, mealType, sellerName, price) {
+  const message = `السلام عليكم ورحمة الله وبركاته
+🍽️ أبيع وجبة ${mealType} إليك
+💰 السعر: ${price} ريال
+📱 تم التواصل عبر منصة وجبتي
+
+شكراً لك 😊`;
+  
+  const encodedMessage = encodeURIComponent(message);
+  return `https://wa.me/966${phoneNumber.substring(1)}?text=${encodedMessage}`;
+}
+
+function showNotification(message, type = 'success') {
+  const notification = document.createElement('div');
+  notification.className = `notification ${type}`;
+  notification.textContent = message;
+  
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    notification.style.animation = 'slideInUp 0.5s ease-out reverse';
+    setTimeout(() => notification.remove(), 500);
+  }, 4000);
+}
+
+function showLoading() {
+  loadingOverlay.classList.remove('hidden');
+}
+
+function hideLoading() {
+  loadingOverlay.classList.add('hidden');
+}
+
+// Theme management
+function toggleTheme() {
+  const currentTheme = document.documentElement.getAttribute('data-theme');
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  
+  document.documentElement.setAttribute('data-theme', newTheme);
+  document.getElementById('themeIcon').textContent = newTheme === 'dark' ? '☀️' : '🌙';
+  
+  localStorage.setItem('preferred-theme', newTheme);
+}
+
+function initTheme() {
+  const savedTheme = localStorage.getItem('preferred-theme');
+  const defaultTheme = savedTheme || 'light';
+  document.documentElement.setAttribute('data-theme', defaultTheme);
+  document.getElementById('themeIcon').textContent = defaultTheme === 'dark' ? '☀️' : '🌙';
+}
+
+// Placeholder functions for seller features - implement as needed
 async function loadSellerMeals() {
   if (!isAuthenticated()) return;
   
@@ -858,237 +1082,6 @@ async function removeOffer(key) {
   }
 }
 
-// ============= Form Submit Handler =============
-function setupEventListeners() {
-  // Offer form submission
-  offerForm.addEventListener('submit', async function(e) {
-    e.preventDefault();
-    
-    if (!isAuthenticated()) {
-      pendingVerificationAction = () => offerForm.dispatchEvent(new Event('submit'));
-      showVerificationModal();
-      return;
-    }
-    
-    const sellerName = document.getElementById('sellerName').value.trim();
-    const mealType = document.getElementById('mealType').value;
-    const price = parseFloat(document.getElementById('mealPrice').value);
-    const details = document.getElementById('mealDetails').value.trim();
-    
-    // Client-side validation
-    if (!price || price <= 0) {
-      showNotification("يرجى إدخال سعر صحيح", "error");
-      return;
-    }
-    
-    if (!sellerName) {
-      showNotification("يرجى إدخال اسم البائع", "error");
-      return;
-    }
-    
-    const submitBtn = e.target.querySelector('button[type="submit"]');
-    const originalText = submitBtn.innerHTML;
-    submitBtn.classList.add('btn-loading');
-    submitBtn.disabled = true;
-    
-    try {
-      const response = await apiRequest(`${API_BASE}/offers`, {
-        method: 'POST',
-        body: JSON.stringify({
-          sellerName,
-          mealType,
-          price,
-          details: details || undefined
-        })
-      });
-
-      if (!response) return;
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        showNotification("تم نشر العرض بنجاح! ✅", "success");
-        offerForm.reset();
-        
-        // Switch to my meals tab
-        setTimeout(() => {
-          showTab(null, 'my-meals');
-          document.querySelector('[onclick*="my-meals"]').click();
-        }, 1500);
-      } else {
-        showNotification(data.message || "حدث خطأ في نشر العرض", "error");
-      }
-    } catch (error) {
-      console.error("خطأ في إضافة العرض:", error);
-      showNotification("حدث خطأ في نشر العرض", "error");
-    } finally {
-      submitBtn.innerHTML = originalText;
-      submitBtn.classList.remove('btn-loading');
-      submitBtn.disabled = false;
-    }
-  });
-
-  // Phone input formatting for verification
-  const phoneInput = document.getElementById('verifyPhoneInput');
-  if (phoneInput) {
-    phoneInput.addEventListener('input', function(e) {
-      let value = e.target.value.replace(/\D/g, '');
-      if (value.length > 10) value = value.substring(0, 10);
-      e.target.value = value;
-      
-      if (value.length >= 8) {
-        hideVerifyError('verifyError1');
-      }
-    });
-    
-    phoneInput.addEventListener('keypress', function(e) {
-      if (e.key === 'Enter') {
-        sendVerificationCode();
-      }
-    });
-  }
-  
-  // Code input formatting
-  const codeInput = document.getElementById('verifyCodeInput');
-  if (codeInput) {
-    codeInput.addEventListener('input', function(e) {
-      let value = e.target.value.replace(/\D/g, '');
-      if (value.length > 6) value = value.substring(0, 6);
-      e.target.value = value;
-      
-      if (value.length === 6) {
-        hideVerifyError('verifyError2');
-        setTimeout(() => verifyCode(), 800);
-      }
-    });
-    
-    codeInput.addEventListener('keypress', function(e) {
-      if (e.key === 'Enter' && e.target.value.length === 6) {
-        verifyCode();
-      }
-    });
-    
-    codeInput.addEventListener('paste', function(e) {
-      e.preventDefault();
-      const paste = (e.clipboardData || window.clipboardData).getData('text');
-      const digits = paste.replace(/\D/g, '').substring(0, 6);
-      e.target.value = digits;
-      
-      if (digits.length === 6) {
-        setTimeout(() => verifyCode(), 500);
-      }
-    });
-  }
-
-  // Rating stars click events
-  const ratingStars = document.querySelectorAll('.rating-stars span');
-  ratingStars.forEach(star => {
-    star.addEventListener('click', function() {
-      selectedRating = parseInt(this.dataset.rating);
-      updateRatingDisplay();
-    });
-    
-    star.addEventListener('mouseenter', function() {
-      const rating = parseInt(this.dataset.rating);
-      ratingStars.forEach((s, index) => {
-        s.style.color = index < rating ? '#ffd700' : '#ddd';
-      });
-    });
-  });
-  
-  document.querySelector('.rating-stars').addEventListener('mouseleave', function() {
-    updateRatingDisplay();
-  });
-
-  // Close modals when clicking outside
-  window.onclick = function(event) {
-    const verificationModal = document.getElementById('phoneVerificationModal');
-    if (event.target === verificationModal) {
-      closeVerificationModal();
-    }
-    if (event.target === ratingModal) {
-      closeRatingModal();
-    }
-  };
-
-  // Close modals with ESC key
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-      closeVerificationModal();
-      closeRatingModal();
-    }
-  });
-}
-
-// ============= Rating System =============
-function showRatingModal(offerKey, sellerName) {
-  currentRatingOffer = offerKey;
-  document.querySelector('#ratingModal h3').textContent = `قيم تجربتك مع البائع ${sellerName}`;
-  selectedRating = 0;
-  updateRatingDisplay();
-  ratingModal.style.display = 'block';
-}
-
-function updateRatingDisplay() {
-  const stars = document.querySelectorAll('.rating-stars span');
-  const ratingText = document.getElementById('ratingText');
-  
-  stars.forEach((star, index) => {
-    star.classList.toggle('active', index < selectedRating);
-  });
-  
-  const ratingLabels = ['', 'ضعيف جداً', 'ضعيف', 'جيد', 'ممتاز', 'رائع'];
-  ratingText.textContent = selectedRating > 0 ? 
-    `${selectedRating}/5 - ${ratingLabels[selectedRating]}` : 
-    'اختر التقييم';
-}
-
-async function submitRating() {
-  if (selectedRating === 0) {
-    showNotification("يرجى اختيار تقييم أولاً", "error");
-    return;
-  }
-  
-  if (!currentRatingOffer) return;
-  
-  showLoading();
-  
-  try {
-    const response = await apiRequest(`${API_BASE}/ratings`, {
-      method: 'POST',
-      body: JSON.stringify({
-        sellerId: 'temp', // Will be extracted from offer
-        rating: selectedRating,
-        offerKey: currentRatingOffer
-      })
-    });
-
-    if (!response) return;
-    
-    const data = await response.json();
-    
-    if (data.success) {
-      showNotification(`تم إضافة تقييمك: ${selectedRating}/5 نجوم! شكراً لك 🌟`, "success");
-      closeRatingModal();
-      loadOffers();
-    } else {
-      showNotification(data.message || "حدث خطأ في إضافة التقييم", "error");
-    }
-  } catch (error) {
-    console.error("خطأ في إضافة التقييم:", error);
-    showNotification("حدث خطأ في إضافة التقييم", "error");
-  } finally {
-    hideLoading();
-  }
-}
-
-function closeRatingModal() {
-  ratingModal.style.display = 'none';
-  currentRatingOffer = null;
-  selectedRating = 0;
-}
-
-// ============= Notifications =============
 async function loadNotifications() {
   if (!isAuthenticated()) return;
   
@@ -1162,103 +1155,86 @@ async function markNotificationRead(notificationId) {
   }
 }
 
-// ============= Utility Functions =============
-function validatePhoneNumber(phone) {
-  const phoneRegex = /^\d{10}$/;
-  return phoneRegex.test(phone) && phone.startsWith('05');
+function showRatingModal(offerKey, sellerName) {
+  currentRatingOffer = offerKey;
+  document.querySelector('#ratingModal h3').textContent = `قيم تجربتك مع البائع ${sellerName}`;
+  selectedRating = 0;
+  updateRatingDisplay();
+  ratingModal.style.display = 'block';
 }
 
-function formatTimeAgo(timestamp) {
-  const now = Date.now();
-  const diffMinutes = Math.floor((now - timestamp) / (1000 * 60));
+function updateRatingDisplay() {
+  const stars = document.querySelectorAll('.rating-stars span');
+  const ratingText = document.getElementById('ratingText');
   
-  if (diffMinutes < 1) return 'الآن';
-  if (diffMinutes < 60) return `منذ ${diffMinutes} دقيقة`;
-  if (diffMinutes < 1440) return `منذ ${Math.floor(diffMinutes / 60)} ساعة`;
-  return `منذ ${Math.floor(diffMinutes / 1440)} يوم`;
+  stars.forEach((star, index) => {
+    star.classList.toggle('active', index < selectedRating);
+  });
+  
+  const ratingLabels = ['', 'ضعيف جداً', 'ضعيف', 'جيد', 'ممتاز', 'رائع'];
+  ratingText.textContent = selectedRating > 0 ? 
+    `${selectedRating}/5 - ${ratingLabels[selectedRating]}` : 
+    'اختر التقييم';
 }
 
-function displayRatingStars(rating, count = 0) {
-  const fullStars = Math.floor(rating);
-  const hasHalfStar = rating % 1 >= 0.5;
-  let starsHtml = '';
-  
-  for (let i = 0; i < 5; i++) {
-    if (i < fullStars) {
-      starsHtml += '⭐';
-    } else if (i === fullStars && hasHalfStar) {
-      starsHtml += '🌟';
-    } else {
-      starsHtml += '☆';
-    }
+async function submitRating() {
+  if (selectedRating === 0) {
+    showNotification("يرجى اختيار تقييم أولاً", "error");
+    return;
   }
   
-  return `<span class="stars">${starsHtml}</span><span class="rating-text">${rating}/5 (${count} تقييم)</span>`;
-}
-
-function createWhatsAppLink(phoneNumber, mealType, sellerName, price) {
-  const message = `السلام عليكم ورحمة الله وبركاته
-🍽️ أبيع وجبة ${mealType} إليك
-💰 السعر: ${price} ريال
-📱 تم التواصل عبر منصة وجبتي
-
-شكراً لك 😊`;
+  if (!currentRatingOffer) return;
   
-  const encodedMessage = encodeURIComponent(message);
-  return `https://wa.me/966${phoneNumber.substring(1)}?text=${encodedMessage}`;
-}
-
-function showNotification(message, type = 'success') {
-  const notification = document.createElement('div');
-  notification.className = `notification ${type}`;
-  notification.textContent = message;
+  showLoading();
   
-  document.body.appendChild(notification);
-  
-  setTimeout(() => {
-    notification.style.animation = 'slideInUp 0.5s ease-out reverse';
-    setTimeout(() => notification.remove(), 500);
-  }, 4000);
+  try {
+    const response = await apiRequest(`${API_BASE}/ratings`, {
+      method: 'POST',
+      body: JSON.stringify({
+        sellerId: 'temp', // Will be extracted from offer
+        rating: selectedRating,
+        offerKey: currentRatingOffer
+      })
+    });
+
+    if (!response) return;
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      showNotification(`تم إضافة تقييمك: ${selectedRating}/5 نجوم! شكراً لك 🌟`, "success");
+      closeRatingModal();
+      loadOffers();
+    } else {
+      showNotification(data.message || "حدث خطأ في إضافة التقييم", "error");
+    }
+  } catch (error) {
+    console.error("خطأ في إضافة التقييم:", error);
+    showNotification("حدث خطأ في إضافة التقييم", "error");
+  } finally {
+    hideLoading();
+  }
 }
 
-function showLoading() {
-  loadingOverlay.classList.remove('hidden');
-}
-
-function hideLoading() {
-  loadingOverlay.classList.add('hidden');
-}
-
-// Theme management
-function toggleTheme() {
-  const currentTheme = document.documentElement.getAttribute('data-theme');
-  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-  
-  document.documentElement.setAttribute('data-theme', newTheme);
-  document.getElementById('themeIcon').textContent = newTheme === 'dark' ? '☀️' : '🌙';
-  
-  localStorage.setItem('preferred-theme', newTheme);
-}
-
-function initTheme() {
-  const savedTheme = localStorage.getItem('preferred-theme');
-  const defaultTheme = savedTheme || 'light';
-  document.documentElement.setAttribute('data-theme', defaultTheme);
-  document.getElementById('themeIcon').textContent = defaultTheme === 'dark' ? '☀️' : '🌙';
+function closeRatingModal() {
+  ratingModal.style.display = 'none';
+  currentRatingOffer = null;
+  selectedRating = 0;
 }
 
 // Make functions available globally
+window.showAuthTab = showAuthTab;
 window.showSeller = showSeller;
 window.showBuyer = showBuyer;
 window.goHome = goHome;
 window.showTab = showTab;
 window.toggleTheme = toggleTheme;
-window.closeVerificationModal = closeVerificationModal;
-window.sendVerificationCode = sendVerificationCode;
-window.verifyCode = verifyCode;
-window.goToVerifyStep1 = goToVerifyStep1;
-window.resendCode = resendCode;
-window.proceedAfterVerification = proceedAfterVerification;
+window.signOut = signOut;
+window.showProfile = showProfile;
+window.closeProfileModal = closeProfileModal;
+window.showAddPhoneModal = showAddPhoneModal;
+window.skipPhoneSetup = skipPhoneSetup;
+window.savePhoneNumber = savePhoneNumber;
 window.reserveMeal = reserveMeal;
 window.confirmReservation = confirmReservation;
 window.rejectReservation = rejectReservation;
